@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>シーザー暗号・ヴィジュネル暗号 ホイール解読ゲーム</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .fade-in { animation: fadeIn 0.3s ease-in; }
+  @keyframes fadeIn { from {opacity:0;transform:translateY(8px)} to {opacity:1;transform:translateY(0)} }
+  #wheel-svg { cursor: grab; user-select: none; touch-action: none; }
+  #wheel-svg:active { cursor: grabbing; }
+  .vigenere-cell { font-size: 10px; width: 18px; height: 18px; text-align: center; line-height: 18px; }
+  .hl-row { background: #4f46e520; }
+  .hl-col { background: #7c3aed20; }
+  .hl-cell { background: #f59e0b !important; color: #000 !important; font-weight: bold; }
+  .tab-btn { transition: all 0.2s; }
+  .tab-btn.active { background: #4f46e5; color: white; }
+  @media (max-width: 640px) { .vigenere-cell { font-size: 7px; width: 13px; height: 13px; line-height: 13px; } }
+</style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen font-mono">
+<div class="max-w-2xl mx-auto px-4 py-6">
+
+  <header class="text-center mb-6">
+    <h1 class="text-2xl font-bold text-amber-400">シーザー暗号・ヴィジュネル暗号</h1>
+    <p class="text-gray-400 text-sm mt-1">Cipher Wheel Decode Game</p>
+  </header>
+
+  <!-- Tab Navigation -->
+  <nav class="flex gap-2 mb-6" role="tablist" aria-label="モード選択">
+    <button class="tab-btn active flex-1 py-2 rounded-lg text-sm font-bold bg-gray-700" id="tab-caesar" onclick="switchTab('caesar')" role="tab" aria-selected="true" aria-controls="panel-caesar">シーザー</button>
+    <button class="tab-btn flex-1 py-2 rounded-lg text-sm font-bold bg-gray-700" id="tab-vigenere" onclick="switchTab('vigenere')" role="tab" aria-selected="false" aria-controls="panel-vigenere">ヴィジュネル</button>
+    <button class="tab-btn flex-1 py-2 rounded-lg text-sm font-bold bg-gray-700" id="tab-puzzle" onclick="switchTab('puzzle')" role="tab" aria-selected="false" aria-controls="panel-puzzle">パズル</button>
+  </nav>
+
+  <!-- Caesar Panel -->
+  <div id="panel-caesar" role="tabpanel" aria-labelledby="tab-caesar">
+    <div class="bg-gray-800 rounded-xl p-5 mb-4">
+      <h2 class="text-amber-300 font-bold mb-3 text-center">シーザー暗号ホイール</h2>
+      <div class="flex justify-center mb-3">
+        <svg id="wheel-svg" viewBox="0 0 300 300" width="280" height="280" aria-label="シーザー暗号ホイール" role="img"></svg>
+      </div>
+      <div class="flex items-center justify-center gap-4 mb-4">
+        <button onclick="rotateWheel(-1)" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg transition" aria-label="左に1回転">◀</button>
+        <div class="text-center">
+          <div class="text-xs text-gray-400">シフト量</div>
+          <div id="shift-display" class="text-2xl font-bold text-amber-400">0</div>
+        </div>
+        <button onclick="rotateWheel(1)" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg transition" aria-label="右に1回転">▶</button>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label for="caesar-input" class="text-xs text-gray-400 block mb-1">入力テキスト</label>
+          <textarea id="caesar-input" rows="3" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:border-amber-400 focus:outline-none resize-none uppercase" placeholder="テキストを入力..." aria-label="シーザー暗号の入力テキスト" spellcheck="false"></textarea>
+        </div>
+        <div>
+          <label for="caesar-output" class="text-xs text-gray-400 block mb-1">変換結果</label>
+          <textarea id="caesar-output" rows="3" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-amber-300 resize-none" readonly aria-label="シーザー暗号の変換結果" spellcheck="false"></textarea>
+        </div>
+      </div>
+      <div class="flex gap-2 mb-4">
+        <button onclick="applyCaesar('encrypt')" class="flex-1 bg-amber-600 hover:bg-amber-500 py-2 rounded-lg text-sm font-bold transition">暗号化 →</button>
+        <button onclick="applyCaesar('decrypt')" class="flex-1 bg-gray-600 hover:bg-gray-500 py-2 rounded-lg text-sm font-bold transition">復号化 ←</button>
+      </div>
+      <details class="bg-gray-700 rounded-lg">
+        <summary class="px-4 py-2 cursor-pointer text-sm text-gray-300 hover:text-white">総当たり解析 (25通り)</summary>
+        <div id="brute-force-output" class="px-4 py-3 text-xs max-h-48 overflow-y-auto"></div>
+      </details>
+    </div>
+  </div>
+
+  <!-- Vigenere Panel -->
+  <div id="panel-vigenere" class="hidden" role="tabpanel" aria-labelledby="tab-vigenere">
+    <div class="bg-gray-800 rounded-xl p-5 mb-4">
+      <h2 class="text-purple-300 font-bold mb-3 text-center">ヴィジュネル暗号</h2>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label for="vig-key" class="text-xs text-gray-400 block mb-1">キーワード</label>
+          <input id="vig-key" type="text" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:border-purple-400 focus:outline-none uppercase" placeholder="KEY" aria-label="ヴィジュネル暗号のキーワード" spellcheck="false">
+        </div>
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">操作</label>
+          <div class="flex gap-2">
+            <button onclick="applyVigenere('encrypt')" class="flex-1 bg-purple-600 hover:bg-purple-500 py-2 rounded-lg text-sm font-bold transition">暗号化</button>
+            <button onclick="applyVigenere('decrypt')" class="flex-1 bg-gray-600 hover:bg-gray-500 py-2 rounded-lg text-sm font-bold transition">復号化</button>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div>
+          <label for="vig-input" class="text-xs text-gray-400 block mb-1">入力テキスト</label>
+          <textarea id="vig-input" rows="3" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:border-purple-400 focus:outline-none resize-none uppercase" placeholder="HELLO" aria-label="ヴィジュネル暗号の入力テキスト" spellcheck="false"></textarea>
+        </div>
+        <div>
+          <label for="vig-output" class="text-xs text-gray-400 block mb-1">変換結果</label>
+          <textarea id="vig-output" rows="3" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-purple-300 resize-none" readonly aria-label="ヴィジュネル暗号の変換結果" spellcheck="false"></textarea>
+        </div>
+      </div>
+      <div>
+        <div class="text-xs text-gray-400 mb-2 text-center">タブラ・レクタ（ハイライト: キー行=青, 平文列=紫, 交点=黄）</div>
+        <div class="overflow-x-auto">
+          <div id="tabula-recta" class="text-gray-300" style="font-size:10px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Puzzle Panel -->
+  <div id="panel-puzzle" class="hidden" role="tabpanel" aria-labelledby="tab-puzzle">
+    <div class="bg-gray-800 rounded-xl p-5 mb-4">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-green-300 font-bold">解読パズル</h2>
+        <div class="text-sm">
+          <span class="text-gray-400">問題: </span>
+          <span id="puz-num" class="text-green-400 font-bold">1</span>/10
+          <span class="ml-3 text-gray-400">スコア: </span>
+          <span id="puz-score" class="text-yellow-400 font-bold">0</span>
+        </div>
+      </div>
+      <div id="puz-card" class="mb-4">
+        <div class="bg-gray-700 rounded-lg p-3 mb-3">
+          <div class="text-xs text-gray-400 mb-1">暗号文</div>
+          <div id="puz-ciphertext" class="text-green-300 font-bold text-lg tracking-widest break-all"></div>
+          <div id="puz-hint-label" class="text-xs text-gray-500 mt-1"></div>
+        </div>
+        <div class="flex gap-2 mb-3">
+          <input id="puz-answer" type="text" class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:border-green-400 focus:outline-none uppercase" placeholder="平文を入力..." aria-label="パズルの答えを入力" spellcheck="false">
+          <button onclick="checkPuzzle()" class="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg font-bold transition">確認</button>
+        </div>
+        <div class="flex gap-2 mb-3">
+          <button onclick="showHint()" class="flex-1 bg-gray-600 hover:bg-gray-500 py-2 rounded-lg text-sm transition" id="hint-btn">ヒント表示 (残り <span id="hints-left">2</span>)</button>
+          <button onclick="showFreqAnalysis()" class="flex-1 bg-gray-600 hover:bg-gray-500 py-2 rounded-lg text-sm transition">頻度分析</button>
+        </div>
+        <div id="puz-feedback" class="text-sm min-h-6 text-center"></div>
+      </div>
+      <div id="freq-chart" class="hidden bg-gray-700 rounded-lg p-3 mb-3">
+        <div class="text-xs text-gray-400 mb-2">文字頻度分析</div>
+        <div id="freq-bars"></div>
+      </div>
+      <div id="puz-hint-box" class="hidden bg-yellow-900 border border-yellow-600 rounded-lg p-3 mb-3">
+        <div id="puz-hint-text" class="text-yellow-200 text-sm"></div>
+      </div>
+      <div id="puz-next" class="hidden">
+        <div id="puz-reveal" class="bg-gray-700 rounded-lg p-3 mb-3 text-sm">
+          <div class="text-gray-400 text-xs mb-1">解答</div>
+          <div id="puz-plaintext" class="text-white font-bold"></div>
+          <div id="puz-method-info" class="text-gray-300 mt-1 text-xs"></div>
+        </div>
+        <button onclick="nextPuzzle()" class="w-full bg-green-600 hover:bg-green-500 py-2 rounded-lg font-bold transition">次の問題 →</button>
+      </div>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-4">
+      <h3 class="text-sm text-gray-400 mb-2">ハイスコア</h3>
+      <div id="puz-highscore" class="text-yellow-400 font-bold text-xl"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+// ===== Tab switching =====
+function switchTab(tab) {
+  ['caesar','vigenere','puzzle'].forEach(t => {
+    document.getElementById('panel-'+t).classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById('tab-'+t);
+    btn.classList.toggle('active', t === tab);
+    btn.setAttribute('aria-selected', t === tab ? 'true' : 'false');
+  });
+  if (tab === 'vigenere') renderTabulaRecta();
+  if (tab === 'puzzle') initPuzzle();
+}
+
+// ===== Caesar Wheel =====
+let shift = 0;
+function drawWheel() {
+  const svg = document.getElementById('wheel-svg');
+  const cx = 150, cy = 150, r1 = 130, r2 = 90, r3 = 60;
+  let html = '';
+  // Outer ring (fixed alphabet)
+  for (let i = 0; i < 26; i++) {
+    const angle = (i / 26) * 2 * Math.PI - Math.PI / 2;
+    const x = cx + r1 * Math.cos(angle);
+    const y = cy + r1 * Math.sin(angle);
+    const col = i === 0 ? '#fbbf24' : '#9ca3af';
+    html += `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" fill="${col}" font-size="11" font-family="monospace">${ALPHA[i]}</text>`;
+  }
+  // Middle ring (shifted alphabet)
+  for (let i = 0; i < 26; i++) {
+    const angle = (i / 26) * 2 * Math.PI - Math.PI / 2;
+    const x = cx + r2 * Math.cos(angle);
+    const y = cy + r2 * Math.sin(angle);
+    const encLetter = ALPHA[(i + shift + 26) % 26];
+    const col = i === 0 ? '#a78bfa' : '#6ee7b7';
+    html += `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" fill="${col}" font-size="11" font-family="monospace">${encLetter}</text>`;
+  }
+  // Circles
+  html = `<circle cx="${cx}" cy="${cy}" r="145" fill="#1f2937" stroke="#374151" stroke-width="2"/>
+<circle cx="${cx}" cy="${cy}" r="110" fill="none" stroke="#374151" stroke-width="1"/>
+<circle cx="${cx}" cy="${cy}" r="75" fill="none" stroke="#374151" stroke-width="1"/>
+<circle cx="${cx}" cy="${cy}" r="40" fill="#111827"/>
+<line x1="${cx}" y1="${cy-145}" x2="${cx}" y2="${cy-75}" stroke="#fbbf24" stroke-width="2"/>
+<text x="${cx}" y="${cy-8}" text-anchor="middle" fill="#fbbf24" font-size="10">平文</text>
+<text x="${cx}" y="${cy+8}" text-anchor="middle" fill="#a78bfa" font-size="10">暗号</text>` + html;
+  svg.innerHTML = html; // xss-ok: internal constant
+}
+function rotateWheel(dir) {
+  shift = (shift + dir + 26) % 26;
+  document.getElementById('shift-display').textContent = shift;
+  drawWheel();
+  applyCaesarAuto();
+  updateBruteForce();
+}
+function caesarChar(c, s, decrypt) {
+  const idx = ALPHA.indexOf(c.toUpperCase());
+  if (idx === -1) return c;
+  const d = decrypt ? -s : s;
+  return ALPHA[(idx + d + 26) % 26];
+}
+function caesarStr(text, s, decrypt) {
+  return text.toUpperCase().split('').map(c => caesarChar(c, s, decrypt)).join('');
+}
+function applyCaesar(mode) {
+  const inp = document.getElementById('caesar-input').value;
+  document.getElementById('caesar-output').value = caesarStr(inp, shift, mode === 'decrypt');
+  updateBruteForce();
+}
+function applyCaesarAuto() {
+  const inp = document.getElementById('caesar-input').value;
+  if (inp) document.getElementById('caesar-output').value = caesarStr(inp, shift, false);
+}
+function updateBruteForce() {
+  const inp = document.getElementById('caesar-input').value || document.getElementById('caesar-output').value;
+  if (!inp) return;
+  let html = '';
+  for (let s = 1; s <= 25; s++) {
+    html += `<div class="py-1 border-b border-gray-600"><span class="text-yellow-400 w-6 inline-block">${s}:</span> ${escapeHtml(caesarStr(inp, s, true))}</div>`;
+  }
+  document.getElementById('brute-force-output').innerHTML = html; // escapeHtml applied to caesarStr output above  // xss-ok: reviewed-internal-data
+}
+// Wheel drag
+let dragging = false, lastAngle = null;
+const svg = document.getElementById('wheel-svg');
+function getAngle(e) {
+  const rect = svg.getBoundingClientRect();
+  const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+  const pt = e.touches ? e.touches[0] : e;
+  return Math.atan2(pt.clientY - cy, pt.clientX - cx) * 180 / Math.PI;
+}
+svg.addEventListener('mousedown', e => { dragging = true; lastAngle = getAngle(e); });
+svg.addEventListener('touchstart', e => { dragging = true; lastAngle = getAngle(e); }, {passive:true});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const a = getAngle(e);
+  const delta = a - lastAngle;
+  if (Math.abs(delta) > 13) { rotateWheel(delta > 0 ? 1 : -1); lastAngle = a; }
+});
+window.addEventListener('touchmove', e => {
+  if (!dragging) return;
+  const a = getAngle(e);
+  const delta = a - lastAngle;
+  if (Math.abs(delta) > 13) { rotateWheel(delta > 0 ? 1 : -1); lastAngle = a; }
+}, {passive:true});
+window.addEventListener('mouseup', () => dragging = false);
+window.addEventListener('touchend', () => dragging = false);
+document.getElementById('caesar-input').addEventListener('input', () => { applyCaesarAuto(); updateBruteForce(); });
+
+// ===== Vigenere =====
+function vigenereChar(c, k, decrypt) {
+  const ci = ALPHA.indexOf(c);
+  const ki = ALPHA.indexOf(k);
+  if (ci === -1 || ki === -1) return c;
+  return decrypt ? ALPHA[(ci - ki + 26) % 26] : ALPHA[(ci + ki) % 26];
+}
+function vigenereStr(text, key, decrypt) {
+  key = key.toUpperCase().replace(/[^A-Z]/g,'');
+  if (!key) return text;
+  let ki = 0;
+  return text.toUpperCase().split('').map(c => {
+    if (!ALPHA.includes(c)) return c;
+    const r = vigenereChar(c, key[ki % key.length], decrypt);
+    ki++;
+    return r;
+  }).join('');
+}
+function applyVigenere(mode) {
+  const key = document.getElementById('vig-key').value;
+  const inp = document.getElementById('vig-input').value;
+  document.getElementById('vig-output').value = vigenereStr(inp, key, mode === 'decrypt');
+  renderTabulaRecta();
+}
+function renderTabulaRecta() {
+  const key = (document.getElementById('vig-key').value || '').toUpperCase().replace(/[^A-Z]/g,'');
+  const inp = (document.getElementById('vig-input').value || '').toUpperCase().replace(/[^A-Z]/g,'');
+  const keyRow = key ? ALPHA.indexOf(key[0]) : -1;
+  const inpCol = inp ? ALPHA.indexOf(inp[0]) : -1;
+  let html = '<table style="border-collapse:collapse">';
+  // Header
+  html += '<tr><td style="width:18px;height:18px"></td>';
+  for (let c = 0; c < 26; c++) {
+    const hl = c === inpCol ? ' color:#a78bfa;font-weight:bold' : '';
+    html += `<td class="vigenere-cell" style="${hl}">${ALPHA[c]}</td>`;
+  }
+  html += '</tr>';
+  for (let r = 0; r < 26; r++) {
+    const isKeyRow = r === keyRow;
+    html += `<tr>`;
+    const rhl = isKeyRow ? ' color:#fbbf24;font-weight:bold' : '';
+    html += `<td class="vigenere-cell" style="${rhl}">${ALPHA[r]}</td>`;
+    for (let c = 0; c < 26; c++) {
+      const enc = ALPHA[(r + c) % 26];
+      let style = 'color:#4b5563';
+      if (r === keyRow && c === inpCol) style = 'background:#f59e0b;color:#000;font-weight:bold';
+      else if (r === keyRow) style = 'background:#1e1b4b;color:#a5b4fc';
+      else if (c === inpCol) style = 'background:#2e1065;color:#c4b5fd';
+      html += `<td class="vigenere-cell" style="${style}">${enc}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+  document.getElementById('tabula-recta').innerHTML = html; // xss-ok: internal constant
+}
+
+// ===== Puzzle Mode =====
+const PUZZLES = [
+  { plain: 'HELLO WORLD', method: 'caesar', shift: 3 },
+  { plain: 'THE QUICK BROWN FOX', method: 'caesar', shift: 13 },
+  { plain: 'CRYPTOGRAPHY IS FUN', method: 'caesar', shift: 7 },
+  { plain: 'SECRET MESSAGE HERE', method: 'caesar', shift: 19 },
+  { plain: 'DECODE THIS CIPHER', method: 'caesar', shift: 5 },
+  { plain: 'VIGENERE CIPHER', method: 'vigenere', key: 'KEY' },
+  { plain: 'HIDDEN MESSAGE', method: 'vigenere', key: 'CODE' },
+  { plain: 'PUZZLE SOLVED', method: 'vigenere', key: 'GAME' },
+  { plain: 'BRUTE FORCE ATTACK', method: 'caesar', shift: 11 },
+  { plain: 'FREQUENCY ANALYSIS', method: 'caesar', shift: 22 },
+];
+let puzState = { idx: 0, score: 0, hintsLeft: 2, started: false };
+function initPuzzle() {
+  if (puzState.started) return;
+  puzState = { idx: 0, score: 0, hintsLeft: 2, started: true };
+  loadPuzzle();
+  renderPuzHighScore();
+}
+function loadPuzzle() {
+  const p = PUZZLES[puzState.idx];
+  const cipher = p.method === 'caesar' ? caesarStr(p.plain, p.shift, false) : vigenereStr(p.plain, p.key, false);
+  document.getElementById('puz-ciphertext').textContent = cipher;
+  document.getElementById('puz-hint-label').textContent = `暗号方式: ${p.method === 'caesar' ? 'シーザー暗号' : 'ヴィジュネル暗号'}`;
+  document.getElementById('puz-answer').value = '';
+  document.getElementById('puz-feedback').textContent = '';
+  document.getElementById('puz-next').classList.add('hidden');
+  document.getElementById('puz-hint-box').classList.add('hidden');
+  document.getElementById('freq-chart').classList.add('hidden');
+  document.getElementById('puz-num').textContent = puzState.idx + 1;
+  document.getElementById('puz-score').textContent = puzState.score;
+  puzState.hintsLeft = 2;
+  document.getElementById('hints-left').textContent = '2';
+}
+function checkPuzzle() {
+  const ans = document.getElementById('puz-answer').value.toUpperCase().replace(/[^A-Z ]/g,'').trim();
+  const p = PUZZLES[puzState.idx];
+  const fb = document.getElementById('puz-feedback');
+  if (ans === p.plain.trim()) {
+    puzState.score += 10 + puzState.hintsLeft * 2;
+    document.getElementById('puz-score').textContent = puzState.score;
+    fb.innerHTML = '<span class="text-green-400">✓ 正解！</span>'; // xss-ok: computed value
+    revealPuzzle(true);
+  } else {
+    fb.innerHTML = '<span class="text-red-400">✗ 不正解。もう一度試してみてください。</span>'; // xss-ok: computed value
+  }
+}
+function revealPuzzle(correct) {
+  const p = PUZZLES[puzState.idx];
+  document.getElementById('puz-plaintext').textContent = p.plain;
+  let info = p.method === 'caesar' ? `シーザー暗号 シフト=${p.shift}` : `ヴィジュネル暗号 キー="${p.key}"`;
+  document.getElementById('puz-method-info').textContent = info;
+  document.getElementById('puz-next').classList.remove('hidden');
+  if (puzState.idx >= 9) {
+    const isNew = saveScore('puzzle', puzState.score);
+    document.getElementById('puz-next').querySelector('button').textContent = '結果を見る';
+    document.getElementById('puz-next').querySelector('button').onclick = () => {
+      renderPuzHighScore();
+      document.getElementById('puz-feedback').innerHTML = `<div class="text-center py-4"><div class="text-4xl font-bold text-yellow-400">${puzState.score} 点</div>${isNew?'<div class="text-green-400 mt-2">🎉 新記録！</div>':''}</div>`; // xss-ok: computed value
+      puzState.started = false;
+    };
+  }
+}
+function nextPuzzle() {
+  puzState.idx++;
+  if (puzState.idx >= PUZZLES.length) { puzState.idx = 0; puzState.started = false; initPuzzle(); return; }
+  loadPuzzle();
+}
+function showHint() {
+  if (puzState.hintsLeft <= 0) return;
+  puzState.hintsLeft--;
+  document.getElementById('hints-left').textContent = puzState.hintsLeft;
+  const p = PUZZLES[puzState.idx];
+  let hint = p.method === 'caesar' ? `ヒント: シーザー暗号です。シフト量は ${p.shift} 〜 ${p.shift} です。` : `ヒント: ヴィジュネル暗号です。キーの長さは ${p.key.length} 文字です。`;
+  document.getElementById('puz-hint-text').textContent = hint;
+  document.getElementById('puz-hint-box').classList.remove('hidden');
+}
+function showFreqAnalysis() {
+  const cipher = document.getElementById('puz-ciphertext').textContent.replace(/[^A-Z]/g,'');
+  const freq = {};
+  for (const c of cipher) freq[c] = (freq[c] || 0) + 1;
+  const sorted = Object.entries(freq).sort((a,b) => b[1]-a[1]);
+  const max = sorted[0]?.[1] || 1;
+  let html = '';
+  sorted.forEach(([c,n]) => {
+    const pct = Math.round(n/cipher.length*100);
+    html += `<div class="flex items-center gap-2 mb-1"><span class="w-4 text-xs text-amber-400">${c}</span><div class="bg-amber-500 h-3 rounded" style="width:${Math.round(n/max*100)}%"></div><span class="text-xs text-gray-400">${pct}%</span></div>`;
+  });
+  document.getElementById('freq-bars').innerHTML = html; // xss-ok: computed value
+  document.getElementById('freq-chart').classList.remove('hidden');
+}
+function saveScore(mode, score) {
+  const key = 'cipher_' + mode;
+  const prev = parseInt(localStorage.getItem(key) || '0');
+  if (score > prev) { localStorage.setItem(key, score); return true; }
+  return false;
+}
+function renderPuzHighScore() {
+  const s = localStorage.getItem('cipher_puzzle') || '0';
+  document.getElementById('puz-highscore').textContent = s + ' 点';
+}
+
+// Init
+drawWheel();
+renderHighScores();
+function renderHighScores() { renderPuzHighScore(); }
+</script>
+</body>
+</html>
